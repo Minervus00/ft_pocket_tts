@@ -1,0 +1,27 @@
+# Secrets: copy .env.example to .env and fill it in
+.env
+
+# Upstream code: cloned at a pinned commit (see README), not vendored
+pocket-tts/
+
+# Generated data, training runs and packaged models (tens of GB)
+data/
+runs/
+pocket-tts-*/
+
+# Weights / audio that should never end up in git
+*.pt
+*.safetensors
+*.wav
+*.flac
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+outputs/

@@ -1,0 +1,74 @@
+# Depth distillation of the Mooré 24-layer teacher (runs/moore_fr24l) into a
+# 6-layer student, following training/configs/depth_distill.yaml. The student
+# gets 6-layer (CPU) speed and CFG 2.0 baked in (generate with cfg 1, as the
+# pocket-tts CLI does).
+#
+# Seeding (training/modules/builders.py): every non-backbone tensor -- the Mooré
+# text embedding, the voice-prompt projection, the flow head, the EOS head -- is
+# copied verbatim from the teacher, the 6 backbone layers from the teacher's
+# bottom + top layers. Only the backbone and conditioning train; the heads stay
+# frozen. Voice cloning therefore carries over from the teacher.
+#
+# BEFORE LAUNCHING: set distill_teacher_weights to the teacher checkpoint you
+# chose (only the last 3 checkpoints of the teacher run are kept).
+#
+# Run from the pocket-tts repo root, after the teacher run has stopped:
+#   uv run python -m training.train ../recipes/moore/distill_moore_fr6l.yaml
+
+model_config: pocket_tts/config/french.yaml  # 6-layer student architecture (+ Mimi weights)
+model_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/moore/tokenizer.json
+start_from_pretrained: false  # the student is seeded from the teacher, not from the French 6L weights
+
+distill_cfg_coef: 2.0
+distill_teacher_config: pocket_tts/config/french_24l.yaml  # teacher architecture
+distill_teacher_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/moore/tokenizer.json
+distill_teacher_weights: ../pocket-tts-moore-step5000/checkpoint_00005000.pt  # validation minimum of runs/moore_fr24l (safe copy)
+# Raw teacher weights: exactly the model packaged in pocket-tts-moore-step5000
+# (listened to and ASR-checked). The EMA shadow at step 5,000 is also usable
+# (< 1% initial weights left at decay 0.999) but has not been evaluated.
+distill_teacher_use_ema: false
+
+data:
+  train_jsonl: ../data/moore/train_aligned.jsonl
+  valid_jsonl: ../data/moore/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+
+flow:
+  type: lsd
+  kwargs: {}
+
+# No CFG dropout in distillation (see depth_distill.yaml): the teacher's targets
+# are always fully conditioned and the student never runs a null branch.
+text_dropout: 0.0
+voice_dropout: 0.0
+
+optim:
+  lr: 4e-4  # upstream screened {1,2,4}e-4: 4e-4 best
+  schedule: cosine
+  warmup_steps: 1000
+
+run_dir: ../runs/moore_fr6l_distill
+# Effective batch 64 as upstream, as 32 x 2: validation re-encodes the validation audio
+# with Mimi at batch_size, and 64 clips of up to 30 s needed a 9.4 GiB allocation that
+# OOM'd next to another job on a 40 GB GPU.
+batch_size: 32
+grad_accum_steps: 2
+# Upstream: WER at parity by ~50k, speaker sim and UTMOS climb until ~150k.
+# The cosine schedule is tied to max_steps, so keep 200k and stop early by ear /
+# eval rather than shrinking it.
+max_steps: 200000
+ema_decay: 0.9999
+log_freq: 50
+valid_freq: 2500
+ckpt_freq: 2500
+num_ckpt_keep: 3  # upstream 999 would keep every 2.5 GB checkpoint and fill the disk
+sample_freq: 2500
+sample_cfg_coef: 1.0  # CFG is baked in; the student is sampled without guidance
+sample_sentences:
+  - "La baa ne rẽ fãa, a Zehu ka sak Sẽn-Ka-Saab sẽn yaa Israyɛll Wẽnnaamã tõodã ne a sũur fãa ye."
+  - "A Abimelɛk wãa tẽngã, n bao yamsem n fẽrg a tẽn-gãongã."
+  - "La Amo-rãmbã sẽn yã tɩ Siiri nebã zoeeme wã, bãmb me zoe a Abisayi ne a tãb-biisã taoor n kẽ tẽngã pʋgẽ."

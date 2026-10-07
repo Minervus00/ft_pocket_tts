@@ -1,0 +1,67 @@
+# Depth distillation of the Dyula 24-layer teacher (runs/dyula_fr24l) into a
+# 6-layer student, following training/configs/depth_distill.yaml. The student
+# gets 6-layer (CPU) speed and CFG 2.0 baked in (generate with cfg 1, as the
+# pocket-tts CLI does).
+#
+# Seeding (training/modules/builders.py): every non-backbone tensor -- the Dyula
+# text embedding, the voice-prompt projection, the flow head, the EOS head -- is
+# copied verbatim from the teacher, the 6 backbone layers from the teacher's
+# bottom + top layers. Only the backbone and conditioning train; the heads stay frozen.
+#
+# BEFORE LAUNCHING: set distill_teacher_weights to the teacher checkpoint you chose.
+#
+# Run from the pocket-tts repo root, after the teacher run has stopped:
+#   uv run python -m training.train ../recipes/dyula/distill_dyula_fr6l.yaml
+
+model_config: pocket_tts/config/french.yaml  # 6-layer student architecture (+ Mimi weights)
+model_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+start_from_pretrained: false  # the student is seeded from the teacher, not from the French 6L weights
+
+distill_cfg_coef: 2.0
+distill_teacher_config: pocket_tts/config/french_24l.yaml  # teacher architecture
+distill_teacher_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+distill_teacher_weights: ../pocket-tts-dyula-step5000/checkpoint_00005000.pt  # teacher step 5,000 (packaged copy)
+distill_teacher_use_ema: false  # raw teacher weights, as for Mooré
+
+data:
+  train_jsonl: ../data/dyula/train_aligned.jsonl
+  valid_jsonl: ../data/dyula/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+
+flow:
+  type: lsd
+  kwargs: {}
+
+# No CFG dropout in distillation (see depth_distill.yaml): the teacher's targets
+# are always fully conditioned and the student never runs a null branch.
+text_dropout: 0.0
+voice_dropout: 0.0
+
+optim:
+  lr: 4e-4  # upstream screened {1,2,4}e-4: 4e-4 best
+  schedule: cosine
+  warmup_steps: 1000
+
+run_dir: ../runs/dyula_fr6l_distill
+# Effective batch 64 as upstream, as 32 x 2: validation re-encodes the validation audio
+# with Mimi at batch_size, which needs ~9.4 GiB at batch 64 with 30 s clips.
+batch_size: 32
+grad_accum_steps: 2
+# The cosine schedule is tied to max_steps; for Mooré the best student was at 30k,
+# so evaluate checkpoints (eval_checkpoints.py) rather than waiting for the end.
+max_steps: 200000
+ema_decay: 0.9999
+log_freq: 50
+valid_freq: 2500
+ckpt_freq: 2500
+num_ckpt_keep: 10  # 0.7 GB each
+sample_freq: 2500
+sample_cfg_coef: 1.0  # CFG is baked in; the student is sampled without guidance
+sample_sentences:  # same sentences as the teacher config
+  - "Neyariya deenw ye Eliyoyenayi ye, ni Izikiya ni Azirikamu ye."
+  - "O kɔ, Isirayɛlidenw kɔsegira ka na don filisiw ka sigiyɔrɔ la k'u ka minanw ta."
+  - "Elize tun lanin be a ka sayabana na tuma min na, Isirayɛli mara masacɛ Zowasi tagar'a fɛ."

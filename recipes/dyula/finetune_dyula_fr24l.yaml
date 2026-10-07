@@ -1,0 +1,49 @@
+# Dyula fine-tune of the released French 24-layer teacher, following
+# training/configs/finetune_language.yaml (new tokenizer, fresh text embedding).
+# Same settings as the Mooré teacher: 16 x 4 accumulation = the 64 rows per step the
+# quality transition needs.
+# Run from the pocket-tts repo root: uv run python -m training.train ../recipes/dyula/finetune_dyula_fr24l.yaml
+model_config: pocket_tts/config/french_24l.yaml
+model_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+start_from_pretrained: true
+reset_text_embedding: true
+
+data:
+  train_jsonl: ../data/dyula/train_aligned.jsonl
+  valid_jsonl: ../data/dyula/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+
+flow:
+  type: lsd
+  kwargs: {}
+
+flow_batch_multiplier: 4
+eos_loss_weight: 0.1
+text_dropout: 0.2
+voice_dropout: 0.2
+
+optim:
+  lr: 2e-4
+  schedule: constant
+  warmup_steps: 1000
+
+run_dir: ../runs/dyula_fr24l
+batch_size: 16
+grad_accum_steps: 4
+# Stop earlier on valid loss / listening / eval_checkpoints.py.
+max_steps: 100000
+stats_ema_steps: 1000
+ema_decay: 0.999
+log_freq: 50
+valid_freq: 2500
+ckpt_freq: 2500
+num_ckpt_keep: 10  # 2.5 GB each: keeps the last 25k steps so the best checkpoint is still on disk when it's chosen
+sample_freq: 2500
+sample_cfg_coef: 2.0
+sample_sentences:  # from held-out chapters (data/dyula/valid.jsonl)
+  - "Neyariya deenw ye Eliyoyenayi ye, ni Izikiya ni Azirikamu ye."
+  - "O kɔ, Isirayɛlidenw kɔsegira ka na don filisiw ka sigiyɔrɔ la k'u ka minanw ta."
+  - "Elize tun lanin be a ka sayabana na tuma min na, Isirayɛli mara masacɛ Zowasi tagar'a fɛ."

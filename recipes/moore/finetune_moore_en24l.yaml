@@ -1,0 +1,49 @@
+# Mooré fine-tune of the released English (2026-09) 24-layer teacher, following
+# training/configs/finetune_language.yaml (new tokenizer, fresh text embedding).
+# Sized for a shared A100-40GB: 16 x 4 accumulation keeps the effective batch at
+# the 64 rows the quality transition needs, in ~16 GB.
+# Run from the pocket-tts repo root: uv run python -m training.train ../recipes/moore/finetune_moore_en24l.yaml
+model_config: pocket_tts/config/english_2026-09_24l.yaml
+model_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/moore/tokenizer.json
+start_from_pretrained: true
+reset_text_embedding: true
+
+data:
+  train_jsonl: ../data/moore/train_aligned.jsonl
+  valid_jsonl: ../data/moore/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+
+flow:
+  type: lsd
+  kwargs: {}
+
+flow_batch_multiplier: 4
+eos_loss_weight: 0.1
+text_dropout: 0.2
+voice_dropout: 0.2
+
+optim:
+  lr: 2e-4
+  schedule: constant
+  warmup_steps: 1000
+
+run_dir: ../runs/moore_en24l
+batch_size: 16
+grad_accum_steps: 4
+# ~225 passes over 71 h at 250k; stop earlier on valid loss / CER / speaker sim.
+max_steps: 100000
+stats_ema_steps: 1000
+ema_decay: 0.999
+log_freq: 50
+valid_freq: 2500
+ckpt_freq: 2500
+num_ckpt_keep: 3
+sample_freq: 2500
+sample_cfg_coef: 2.0
+sample_sentences:
+  - "La baa ne rẽ fãa, a Zehu ka sak Sẽn-Ka-Saab sẽn yaa Israyɛll Wẽnnaamã tõodã ne a sũur fãa ye."
+  - "A Abimelɛk wãa tẽngã, n bao yamsem n fẽrg a tẽn-gãongã."
+  - "La Amo-rãmbã sẽn yã tɩ Siiri nebã zoeeme wã, bãmb me zoe a Abisayi ne a tãb-biisã taoor n kẽ tẽngã pʋgẽ."

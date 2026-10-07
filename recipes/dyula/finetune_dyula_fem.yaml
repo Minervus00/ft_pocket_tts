@@ -1,0 +1,53 @@
+# Voice fine-tune of the Dyula teacher (step 5,000) on a single female speaker
+# (Minervus00/fem_dyu_16khz, ~5.5 h train), following training/configs/finetune.yaml:
+# same language, same tokenizer, so the text embedding carries over; lr a tenth of
+# the new-language rate. The result is the teacher for a female-voice student.
+# Run from the pocket-tts repo root: uv run python -m training.train ../recipes/dyula/finetune_dyula_fem.yaml
+model_config: pocket_tts/config/french_24l.yaml  # 24-layer architecture (+ Mimi)
+model_overrides:
+  # Start from our Dyula teacher instead of Kyutai's French weights.
+  weights_path: ../pocket-tts-dyula-step5000/model.safetensors
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+start_from_pretrained: true
+reset_text_embedding: false  # same tokenizer as the teacher
+
+data:
+  train_jsonl: ../data/dyula_fem/train_aligned.jsonl
+  valid_jsonl: ../data/dyula_fem/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+
+flow:
+  type: lsd
+  kwargs: {}
+
+flow_batch_multiplier: 4
+eos_loss_weight: 0.1
+text_dropout: 0.2
+voice_dropout: 0.2
+
+optim:
+  lr: 2e-5  # finetune.yaml: a tenth of the new-language rate, the model already speaks Dyula
+  schedule: constant
+  warmup_steps: 200  # finetune.yaml uses 1000; one pass over 5.5 h is only ~26 steps here
+
+run_dir: ../runs/dyula_fem_fr24l
+# 8 x 8 = the same 64 rows per step as 16 x 4, in about half the activation memory
+# (the GPU is shared with another process holding ~17 GB).
+batch_size: 8
+grad_accum_steps: 8
+# ~190 passes over the data at 5,000 steps: expect the best checkpoint well before the end.
+max_steps: 5000
+stats_ema_steps: 1000
+ema_decay: 0.999
+log_freq: 50
+valid_freq: 250
+ckpt_freq: 500
+num_ckpt_keep: 10  # every checkpoint of the run (2.5 GB each)
+sample_freq: 250
+sample_cfg_coef: 2.0
+sample_sentences:  # from held-out pseudo-chapters (data/dyula_fem/valid.jsonl)
+  - "Kana tulu mɔ i yɛrɛ la, i yɛrɛ kɛ i n'a fɔ muso min be sanga na n'a be kasira kabini tumajan."
+  - "Madiyanw tun te se k'u kuun kɔrɔta fewu Isirayɛlidenw ɲana."
+  - "U y'u jaabi ko: «Aw ye wili, an be taga o yɔrɔ mɔgɔw kama!"

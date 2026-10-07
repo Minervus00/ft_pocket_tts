@@ -1,0 +1,68 @@
+# Depth distillation of the Dyula female-voice teacher (runs/dyula_fem_fr24l, step 1,000)
+# into a 6-layer student, following training/configs/depth_distill.yaml (CFG 2.0 baked in;
+# generate with cfg 1, as the pocket-tts CLI does). Distilled on her recordings, so the
+# teacher's targets are in her voice: the result is a fixed-voice student.
+#
+# Initialization (training/modules/builders.py): every non-backbone tensor comes from the
+# female teacher (the flow and EOS heads stay frozen), the 6 backbone layers from the
+# teacher's layers 0-2 and 21-23.
+#
+# Run from the pocket-tts repo root:
+#   uv run python -m training.train ../recipes/dyula/distill_dyula_fem_fr6l.yaml
+
+model_config: pocket_tts/config/french.yaml  # 6-layer student architecture (+ Mimi weights)
+model_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+start_from_pretrained: false
+
+distill_cfg_coef: 2.0
+distill_teacher_config: pocket_tts/config/french_24l.yaml  # teacher architecture
+distill_teacher_overrides:
+  flow_lm.lookup_table.tokenizer_path: ../data/dyula/tokenizer.json
+distill_teacher_weights: ../pocket-tts-dyula-fem-step1000/checkpoint_00001000.pt  # female-voice teacher (packaged copy)
+distill_teacher_use_ema: false  # raw teacher weights: the model that was listened to
+# Student seeded from the (female) teacher's own layers 0-2 and 21-23, Kyutai's default. Seeding it from
+# the narrator student instead (student_init_from) keeps the narrators' voice, which teacher-forced
+# distillation does not undo.
+# student_init_from: ../pocket-tts-dyula-6l-step55000/checkpoint_00055000.pt
+
+data:
+  train_jsonl: ../data/dyula_fem/train_aligned.jsonl
+  valid_jsonl: ../data/dyula_fem/valid_aligned.jsonl
+  max_duration_sec: 30.0
+  max_voice_prompt_sec: 5.0
+  loader_procs: 6
+  # Each loader process gets 1/6 of the 1,697 segments (~283) and only yields batches once it holds
+  # num_bucket_batches x batch_size samples: 20 x 32 = 640 would never fill, 4 x 32 = 128 does.
+  num_bucket_batches: 4
+
+flow:
+  type: lsd
+  kwargs: {}
+
+# No CFG dropout in distillation (see depth_distill.yaml).
+text_dropout: 0.0
+voice_dropout: 0.0
+
+optim:
+  lr: 4e-4  # depth_distill.yaml value
+  schedule: cosine
+  warmup_steps: 1000
+
+run_dir: ../runs/dyula_fem_fr6l_distill
+# Effective batch 64 (upstream), as 32 x 2 like the narrator students.
+batch_size: 32
+grad_accum_steps: 2
+# The narrator students were best at 30-55k steps; the cosine schedule is tied to max_steps.
+max_steps: 40000
+ema_decay: 0.9999
+log_freq: 50
+valid_freq: 1000
+ckpt_freq: 1000
+num_ckpt_keep: 40  # every checkpoint of the run (0.7 GB each)
+sample_freq: 1000
+sample_cfg_coef: 1.0  # CFG is baked in; the student is sampled without guidance
+sample_sentences:  # same held-out sentences as the female teacher
+  - "Kana tulu mɔ i yɛrɛ la, i yɛrɛ kɛ i n'a fɔ muso min be sanga na n'a be kasira kabini tumajan."
+  - "Madiyanw tun te se k'u kuun kɔrɔta fewu Isirayɛlidenw ɲana."
+  - "U y'u jaabi ko: «Aw ye wili, an be taga o yɔrɔ mɔgɔw kama!"
